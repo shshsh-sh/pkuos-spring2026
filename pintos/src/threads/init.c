@@ -133,14 +133,51 @@ pintos_init (void)
     /* Run actions specified on kernel command line. */
     run_actions (argv);
   } else {
-    // TODO: no command line passed to kernel. Run interactively 
+    /* Run a tiny kernel shell here. */
+    const int buf_size = 1024;
+    char* cmd;
+    int length;
+    cmd = malloc (buf_size);
+    for (;;) {
+      memset (cmd, 0, buf_size);
+      length = 0;
+      printf ("PKUOS> ");
+      for (;;) {
+        char c;
+        c = input_getc();
+        if (c == 127) {
+          if (length > 0) {
+            cmd[length] = 0;
+            length--;
+            putchar ('\b');
+            putchar (' ');
+            putchar ('\b');
+          }
+          continue;
+        }
+        if (c == '\n' || c == '\r') {
+          cmd[length] = 0;
+          puts("");
+          break;
+        }
+        putchar (c);
+        if (length + 1 < buf_size)
+          cmd[length++] = c;
+      }
+      if (!strcmp (cmd, "whoami"))
+        puts("2400012942");
+      else if(!strcmp (cmd, "exit"))
+        break;
+      else
+        puts("invalid command");
+    }
   }
 
   /* Finish up. */
   shutdown ();
   thread_exit ();
 }
-
+
 /** Clear the "BSS", a segment that should be initialized to
    zeros.  It isn't actually stored on disk or zeroed by the
    kernel loader, so we have to zero it ourselves.
