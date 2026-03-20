@@ -4,6 +4,7 @@
 #include <debug.h>
 #include <list.h>
 #include <stdint.h>
+#include "threads/fixedpoint.h"
 
 /** States in a thread's life cycle. */
 enum thread_status
@@ -89,9 +90,16 @@ struct thread
     uint8_t *stack;                     /**< Saved stack pointer. */
     int priority;                       /**< Priority. */
     struct list_elem allelem;           /**< List element for all threads list. */
+    int64_t wakeup_tick;                /**< Tick to wake up on. */
 
     /* Shared between thread.c and synch.c. */
     struct list_elem elem;              /**< List element. */
+
+    /* Used by timer.c, sleeping_list. */
+    struct list_elem sleep_elem;        /**< List element for sleeping list. */
+
+    int nice;                           /**< Niceness. */
+    fp64 recent_cpu;                     /**< Recent CPU usage. */
 
 #ifdef USERPROG
     /* Owned by userprog/process.c. */
@@ -132,6 +140,11 @@ void thread_foreach (thread_action_func *, void *);
 
 int thread_get_priority (void);
 void thread_set_priority (int);
+
+int64_t thread_get_wakeup_tick (void);
+void thread_set_wakeup_tick (int64_t);
+
+bool wakeup_tick_less (const struct list_elem *, const struct list_elem *, void *aux);
 
 int thread_get_nice (void);
 void thread_set_nice (int);
