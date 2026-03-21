@@ -88,7 +88,7 @@ update_load_avg (void)
   int ready_threads = list_size (&ready_list);
   if (thread_current () != idle_thread)
     ready_threads++;
-  load_avg = MUL_FP (INT_TO_FP (59) / 60, load_avg) + INT_TO_FP (ready_threads) / 60;
+  load_avg = DIV_FP(load_avg * 59, INT_TO_FP(60)) + INT_TO_FP (ready_threads) / 60;
 }
 
 /** Updates recent_cpu for thread T. */
@@ -401,7 +401,7 @@ thread_yield (void)
 
   old_level = intr_disable ();
   if (cur != idle_thread) 
-    list_push_back (&ready_list, &cur->elem);
+    list_insert_ordered (&ready_list, &cur->elem, thread_priority_greater, NULL);
   cur->status = THREAD_READY;
   schedule ();
   intr_set_level (old_level);
@@ -487,6 +487,12 @@ void
 thread_set_nice (int nice UNUSED) 
 {
   struct thread *cur = thread_current ();
+  int old_priority = cur->priority;
+  cur->nice = nice;
+  update_thread_priority (cur, NULL);
+  list_sort (&ready_list, thread_priority_greater, NULL);
+  if (cur->priority > old_priority)
+    thread_yield ();
 }
 
 /** Returns the current thread's nice value. */
