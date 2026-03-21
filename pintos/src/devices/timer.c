@@ -181,6 +181,8 @@ timer_interrupt (struct intr_frame *args UNUSED)
   ticks++;
   thread_tick ();
 
+  enum intr_level old_level = intr_disable ();
+
   /* Wake up sleeping threads whose wakeup_tick has been reached.
      The sleeping_list is ordered by wakeup_tick in ascending order,
      so we can stop as soon as we find a thread that is not yet ready. */
@@ -193,7 +195,11 @@ timer_interrupt (struct intr_frame *args UNUSED)
 
     list_pop_front (&sleeping_list);
     thread_unblock (t);
+    if (t->priority > thread_current ()->priority)
+      intr_yield_on_return ();
   }
+
+  intr_set_level (old_level);
 }
 
 /** Returns true if LOOPS iterations waits for more than one timer

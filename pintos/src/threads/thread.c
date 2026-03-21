@@ -68,7 +68,6 @@ static fp64 load_avg;
 static void update_load_avg (void);
 static void update_recent_cpu (struct thread *t, void *aux UNUSED);
 static void update_thread_priority (struct thread *t, void *aux UNUSED);
-static bool thread_priority_greater (const struct list_elem *a, const struct list_elem *b, void *aux);
 
 static void kernel_thread (thread_func *, void *aux);
 
@@ -116,7 +115,7 @@ update_thread_priority (struct thread *t, void *aux UNUSED)
 }
 
 /** Returns true if thread A has higher priority than thread B, false otherwise. */
-static bool
+bool
 thread_priority_greater (const struct list_elem *a, const struct list_elem *b, void *aux UNUSED)
 {
   const struct thread *ta = list_entry (a, struct thread, elem);
@@ -431,8 +430,24 @@ thread_set_priority (int new_priority)
 {
   if (thread_mlfqs)
     return;
-  /* Not implemented for MLFQS. */
-  thread_current ()->priority = new_priority;
+  struct thread *cur = thread_current ();
+  int old_priority = cur->priority;
+  cur->base_priority = new_priority;
+  if (old_priority < new_priority)
+    cur->priority = new_priority;
+  else if (old_priority > new_priority)
+    cur->priority = max (cur->base_priority, cur->donated_priority);
+  if (cur->priority > old_priority)
+    thread_yield ();
+  if (cur->priority < old_priority)
+  {
+    if (!list_empty (&ready_list))
+    {
+      struct thread *t = list_entry (list_front (&ready_list), struct thread, elem);
+      if (t->priority > cur->priority)
+        thread_yield ();
+    }
+  }
 }
 
 /** Returns the current thread's priority. */
@@ -581,9 +596,13 @@ init_thread (struct thread *t, const char *name, int priority)
   strlcpy (t->name, name, sizeof t->name);
   t->stack = (uint8_t *) t + PGSIZE;
   t->priority = priority;
+  t->base_priority = priority;
+  t->donated_priority = PRI_MIN;
   t->nice = 0;
   t->recent_cpu = 0;
   t->magic = THREAD_MAGIC;
+  t->waiting_lock = NULL;
+  list_init (&t->locks);
 
   old_level = intr_disable ();
   list_push_back (&all_list, &t->allelem);
@@ -613,8 +632,9 @@ next_thread_to_run (void)
 {
   if (list_empty (&ready_list))
     return idle_thread;
-  else
-    return list_entry (list_pop_front (&ready_list), struct thread, elem);
+  else if (!thread_mlfqs)
+    list_sort (&ready_list, thread_priority_greater, NULL);
+  return list_entry (list_pop_front (&ready_list), struct thread, elem);
 }
 
 /** Completes a thread switch by activating the new thread's page

@@ -6,6 +6,8 @@
 #include <stdint.h>
 #include "threads/fixedpoint.h"
 
+#define max(a, b) ((a) > (b) ? (a) : (b))
+
 /** States in a thread's life cycle. */
 enum thread_status
   {
@@ -91,15 +93,18 @@ struct thread
     int priority;                       /**< Priority. */
     struct list_elem allelem;           /**< List element for all threads list. */
     int64_t wakeup_tick;                /**< Tick to wake up on. */
+    int nice;                           /**< Niceness. */
+    fp64 recent_cpu;                    /**< Recent CPU usage. */
+    int base_priority;                  /**< Base priority before donations. */
+    int donated_priority;               /**< Priority donated by other threads. */
+    struct lock *waiting_lock;          /**< Lock the thread is waiting on, if any. */
+    struct list locks;                  /**< List of locks held by the thread. */
 
     /* Shared between thread.c and synch.c. */
     struct list_elem elem;              /**< List element. */
 
     /* Used by timer.c, sleeping_list. */
     struct list_elem sleep_elem;        /**< List element for sleeping list. */
-
-    int nice;                           /**< Niceness. */
-    fp64 recent_cpu;                     /**< Recent CPU usage. */
 
 #ifdef USERPROG
     /* Owned by userprog/process.c. */
@@ -150,5 +155,7 @@ int thread_get_nice (void);
 void thread_set_nice (int);
 int thread_get_recent_cpu (void);
 int thread_get_load_avg (void);
+
+bool thread_priority_greater (const struct list_elem *a, const struct list_elem *b, void *aux);
 
 #endif /**< threads/thread.h */
