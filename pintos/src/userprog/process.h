@@ -2,10 +2,34 @@
 #define USERPROG_PROCESS_H
 
 #include "threads/thread.h"
+#include "threads/synch.h"
+#include "filesys/file.h"
+
+#define MAX_FD_COUNT 128
+
+typedef tid_t pid_t;
 
 tid_t process_execute (const char *file_name);
 int process_wait (tid_t);
 void process_exit (void);
 void process_activate (void);
+
+struct process
+  {
+    char **argv;                           /**< Argument vector. */
+    pid_t pid;                             /**< Process identifier. */
+    struct list children;                  /**< List of child processes. */
+    struct list_elem elem;                 /**< List element for child processes. */
+    struct thread *parent;                 /**< Parent process. */
+    int exit_status;                       /**< Exit status. */
+    bool waited;                           /**< Whether the parent is waiting for this process. */
+    bool exited;                           /**< Whether the process has exited. */
+    bool loaded;                           /**< Whether the process has loaded successfully. */
+    struct semaphore wait_sema;            /**< Semaphore for waiting on this process. */
+    struct lock lock;                      /**< Lock for synchronizing access to this process. */
+    struct file *fd_table[MAX_FD_COUNT];   /**< File descriptor table. */
+    int fd_count;                          /**< Count of open file descriptors. */
+    int ref_count;                         /**< Reference count for this process. */
+  };
 
 #endif /**< userprog/process.h */
