@@ -18,6 +18,8 @@
 #include "threads/thread.h"
 #include "threads/vaddr.h"
 
+#include "devices/timer.h"
+
 static thread_func start_process NO_RETURN;
 static bool load (char **argv, void (**eip) (void), void **esp);
 static void free_process (struct process *proc);
@@ -52,7 +54,20 @@ init_process (struct process *proc, char **argv)
   lock_init (&proc->lock);
   memset (proc->fd_table, 0, sizeof (proc->fd_table));
   proc->fd_count = 0;
-  proc->ref_count = 2; // One for the process itself and one for the parent
+  proc->ref_count = 1;
+}
+
+void process_refcount_free (struct process *proc)
+{
+  lock_acquire (&proc->lock);
+  proc->ref_count--;
+  ASSERT (proc->ref_count >= 0);
+  if (proc->ref_count == 0) {
+    lock_release (&proc->lock);
+    free_process (proc);
+  } else {
+    lock_release (&proc->lock);
+  }
 }
 
 /** Starts a new thread running a user program loaded from
@@ -87,7 +102,7 @@ process_execute (const char *cmd_line)
     argv[argc++] = token;
   }
   argv[argc] = NULL;
-  struct process *proc = malloc (sizeof(struct process));
+  struct process *proc = malloc (sizeof (struct process));
   if (proc == NULL)
   {
     palloc_free_page (argv);
@@ -151,6 +166,7 @@ start_process (void *process_)
 int
 process_wait (tid_t child_tid UNUSED) 
 {
+  timer_sleep(10);
   return -1;
 }
 
@@ -516,7 +532,7 @@ setup_stack (void **esp, char **argv)
 
    /* Push arguments onto stack. */
 
-  char *argc_ptrs[argc];
+  char *argc_ptrs[argc + 1];
   for (int i = argc - 1; i >= 0; i--) {
     size_t arg_len = strlen(argv[i]) + 1;
     *esp -= arg_len;

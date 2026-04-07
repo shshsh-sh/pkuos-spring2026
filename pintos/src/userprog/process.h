@@ -9,11 +9,12 @@
 
 typedef tid_t pid_t;
 
-tid_t process_execute (const char *file_name);
-int process_wait (tid_t);
-void process_exit (void);
-void process_activate (void);
-
+/**
+ * In Pintos, each process has only one thread.
+ * The `struct process` structure contains information about a process,
+ * including its arguments, identifier, parent-child relationships,
+ * exit status, synchronization primitives for waiting, and file descriptor table.
+ */
 struct process
   {
     char **argv;                           /**< Argument vector. */
@@ -31,5 +32,11 @@ struct process
     int fd_count;                          /**< Count of open file descriptors. */
     int ref_count;                         /**< Reference count for this process. */
   };
+
+tid_t process_execute (const char *file_name);
+int process_wait (tid_t);
+void process_exit (void);
+void process_activate (void);
+void process_refcount_free (struct process *proc);
 
 #endif /**< userprog/process.h */
