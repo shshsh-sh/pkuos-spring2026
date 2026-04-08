@@ -133,13 +133,13 @@ syscall_open (const char *file)
   struct thread *cur = thread_current ();
   struct process *proc = cur->process;
   
-  lock_acquire (&proc->lock);
   lock_acquire (&filesys_lock);
+  lock_acquire (&proc->lock);
   struct file *f = filesys_open (file);
   if (f == NULL)
   {
-    lock_release (&filesys_lock);
     lock_release (&proc->lock);
+    lock_release (&filesys_lock);
     return -1;
   }
 
@@ -156,13 +156,13 @@ syscall_open (const char *file)
   if (fd == -2)
   {
     file_close (f);
-    lock_release (&filesys_lock);
     lock_release (&proc->lock);
+    lock_release (&filesys_lock);
     return -2;
   }
 
-  lock_release (&filesys_lock);
   lock_release (&proc->lock);
+  lock_release (&filesys_lock);
   return fd;
 }
 
@@ -303,18 +303,18 @@ syscall_close (int fd)
 {
   struct thread *cur = thread_current ();
   struct process *proc = cur->process;
-  lock_acquire (&proc->lock);
-  if (fd < 0 || fd >= MAX_FD_COUNT || proc->fd_table[fd] == NULL)
-  {
-    lock_release (&proc->lock);
-    return;
-  }
-  struct file *f = proc->fd_table[fd];
-  proc->fd_table[fd] = NULL;
-  lock_release (&proc->lock);
-
+  
   lock_acquire (&filesys_lock);
-  file_close (f);
+  lock_acquire (&proc->lock);
+  
+  if (fd >= 0 && fd < MAX_FD_COUNT && proc->fd_table[fd] != NULL)
+    {
+      struct file *f = proc->fd_table[fd];
+      proc->fd_table[fd] = NULL;
+      file_close (f);
+    }
+  
+  lock_release (&proc->lock);
   lock_release (&filesys_lock);
 }
 

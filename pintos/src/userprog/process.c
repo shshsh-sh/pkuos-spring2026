@@ -222,9 +222,14 @@ process_wait (tid_t child_tid)
 
   lock_acquire (&child_proc->lock);
   exit_status = child_proc->exit_status;
-  list_remove (&child_proc->elem);
   lock_release (&child_proc->lock);
+
+  lock_acquire (&proc->lock);
+  list_remove (&child_proc->elem);
+  lock_release (&proc->lock);
+
   process_refcount_free (child_proc);
+
   return exit_status;
 }
 
@@ -262,6 +267,7 @@ process_exit (int status)
   lock_acquire (&proc->lock);
   const char* prog_name = proc->argv[0];
   printf("%s: exit(%d)\n", prog_name, status);
+  lock_release (&proc->lock);
 
   // Allow other processes to write to the executable file after this process exits.
   lock_acquire (&filesys_lock);
@@ -279,6 +285,7 @@ process_exit (int status)
   }
   lock_release (&filesys_lock);
 
+  lock_acquire (&proc->lock);
   proc->exit_status = status;
   proc->exited = true;
   lock_release (&proc->lock);
