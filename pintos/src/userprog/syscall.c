@@ -82,24 +82,7 @@ syscall_halt (void)
 static void
 syscall_exit (int status)
 {
-  struct thread *cur = thread_current ();
-  struct process *proc = cur->process;
-  lock_acquire (&proc->lock);
-  const char* prog_name = proc->argv[0];
-  printf("%s: exit(%d)\n", prog_name, status);
-
-  // Allow other processes to write to the executable file after this process exits.
-  lock_acquire (&filesys_lock);
-  struct file *executable = proc->executable;
-  file_close (executable);
-  lock_release (&filesys_lock);
-
-  proc->exit_status = status;
-  proc->exited = true;
-  lock_release (&proc->lock);
-  sema_up (&proc->wait_sema);
-  process_refcount_free (proc);
-  thread_exit ();
+  process_exit (status);
 }
 
 static pid_t
@@ -150,15 +133,16 @@ syscall_open (const char *file)
   struct thread *cur = thread_current ();
   struct process *proc = cur->process;
   
+  lock_acquire (&proc->lock);
   lock_acquire (&filesys_lock);
   struct file *f = filesys_open (file);
   if (f == NULL)
   {
     lock_release (&filesys_lock);
+    lock_release (&proc->lock);
     return -1;
   }
 
-  lock_acquire (&proc->lock);
   int fd = -2;
   for (int i = STDOUT_FILENO + 1; i < MAX_FD_COUNT; i++)
   {

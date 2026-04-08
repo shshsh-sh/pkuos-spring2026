@@ -32,6 +32,7 @@ struct process
     int fd_count;                          /**< Count of open file descriptors. */
     int ref_count;                         /**< Reference count for this process. */
     struct file *executable;               /**< The executable file of this process. */
+    char *cmd_line_cpy;                    /**< A copy of the command line for this process. */
   };
 
 tid_t process_execute (const char *file_name);

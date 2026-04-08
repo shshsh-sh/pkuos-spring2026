@@ -30,11 +30,10 @@ static void free_process (struct process *proc);
 static void
 free_process (struct process *proc)
 {
+  if (proc->cmd_line_cpy != NULL)
+    palloc_free_page (proc->cmd_line_cpy);
   if (proc->argv != NULL)
-    {
-    palloc_free_page (proc->argv[0]);
     palloc_free_page (proc->argv);
-    }
   free (proc);
 }
 
@@ -54,6 +53,7 @@ init_process (struct process *proc, char **argv)
   memset (proc->fd_table, 0, sizeof (proc->fd_table));
   proc->fd_count = 0;
   proc->ref_count = 1;
+  proc->cmd_line_cpy = NULL;
 }
 
 void process_refcount_free (struct process *proc)
@@ -115,11 +115,11 @@ process_execute (const char *cmd_line)
       return TID_ERROR;
     }
   init_process (child_proc, argv);
+  child_proc->cmd_line_cpy = cmd_line_copy;
   tid_t tid = thread_create (argv[0], PRI_DEFAULT, start_process, child_proc);
   if (tid == TID_ERROR)
     {
       process_refcount_free (child_proc);
-      palloc_free_page (cmd_line_copy);
       return TID_ERROR;
     }
   child_proc->pid = tid;
@@ -133,7 +133,7 @@ process_execute (const char *cmd_line)
       lock_acquire (&proc->lock);
       list_remove (&child_proc->elem);
       lock_release (&proc->lock);
-      palloc_free_page (cmd_line_copy);
+      process_refcount_free (child_proc);
       return TID_ERROR;
     }
   return tid;
@@ -163,7 +163,6 @@ start_process (void *process_)
     {
       process->loaded = false;
       sema_up (&process->wait_sema); // Wake up the parent process.
-      process_refcount_free (process);
       thread_exit ();
     }
   
@@ -266,12 +265,18 @@ process_exit (int status)
 
   // Allow other processes to write to the executable file after this process exits.
   lock_acquire (&filesys_lock);
-  struct file *executable = filesys_open (prog_name);
+  struct file *executable = proc->executable;
   if (executable != NULL)
     {
       file_allow_write (executable);
       file_close (executable);
     }
+  for (int i = 2; i < MAX_FD_COUNT; i++) {
+    if (proc->fd_table[i] != NULL && proc->fd_table[i] != executable) {
+      file_close (proc->fd_table[i]);
+      proc->fd_table[i] = NULL;
+    }
+  }
   lock_release (&filesys_lock);
 
   proc->exit_status = status;
@@ -395,7 +400,6 @@ load (struct process *proc, void (**eip) (void), void **esp)
   file = filesys_open (prog_name);
   if (file == NULL) 
     {
-      printf ("load: %s: open failed\n", prog_name);
       lock_release (&filesys_lock);
       return false;
     }
