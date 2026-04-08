@@ -333,7 +333,20 @@ run_task (char **argv)
   
   printf ("Executing '%s':\n", task);
 #ifdef USERPROG
+  struct thread *cur = thread_current ();
+  struct process *proc = malloc (sizeof (struct process));
+
+  if (proc == NULL)
+    {
+      PANIC ("first process malloc failed\n");
+      return;
+    }
+  init_process (proc, NULL);
+
+  cur->process = proc;
   process_wait (process_execute (task));
+
+  process_refcount_free (proc);
 #else
   run_test (task);
 #endif

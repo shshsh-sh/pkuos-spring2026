@@ -23,7 +23,6 @@
 static thread_func start_process NO_RETURN;
 static bool load (char **argv, void (**eip) (void), void **esp);
 static void free_process (struct process *proc);
-static void init_process (struct process *proc, char **argv);
 
 /**
  * Frees the current process's resources.
@@ -32,14 +31,14 @@ static void
 free_process (struct process *proc)
 {
   if (proc->argv != NULL)
-  {
+    {
     palloc_free_page (proc->argv[0]);
     palloc_free_page (proc->argv);
-  }
+    }
   free (proc);
 }
 
-static void
+void
 init_process (struct process *proc, char **argv)
 {
   proc->argv = argv;
@@ -62,12 +61,15 @@ void process_refcount_free (struct process *proc)
   lock_acquire (&proc->lock);
   proc->ref_count--;
   ASSERT (proc->ref_count >= 0);
-  if (proc->ref_count == 0) {
-    lock_release (&proc->lock);
-    free_process (proc);
-  } else {
-    lock_release (&proc->lock);
-  }
+  if (proc->ref_count == 0)
+    {
+      lock_release (&proc->lock);
+      free_process (proc);
+    }
+  else
+    {
+      lock_release (&proc->lock);
+    }
 }
 
 /** Starts a new thread running a user program loaded from
@@ -84,39 +86,56 @@ process_execute (const char *cmd_line)
     return TID_ERROR;
   char *cmd_line_copy = palloc_get_page (0);
   if (cmd_line_copy == NULL)
-  {
-    palloc_free_page (argv);
-    return TID_ERROR;
-  }
+    {
+      palloc_free_page (argv);
+      return TID_ERROR;
+    }
   strlcpy (cmd_line_copy, cmd_line, PGSIZE);
   char *save_ptr;
   for (char *token = strtok_r (cmd_line_copy, " ", &save_ptr); token != NULL;
        token = strtok_r (NULL, " ", &save_ptr))
-  {
-    if ((size_t) argc >= PGSIZE / sizeof(char *))
+    {
+      if ((size_t) argc >= PGSIZE / sizeof(char *))
+        {
+          palloc_free_page (argv);
+          palloc_free_page (cmd_line_copy);
+          return TID_ERROR;
+        }
+      argv[argc++] = token;
+    }
+  argv[argc] = NULL;
+
+  struct thread *cur = thread_current ();
+  struct process *proc = cur->process;
+  struct process *child_proc = malloc (sizeof (struct process));
+  if (child_proc == NULL)
     {
       palloc_free_page (argv);
       palloc_free_page (cmd_line_copy);
       return TID_ERROR;
     }
-    argv[argc++] = token;
-  }
-  argv[argc] = NULL;
-  struct process *proc = malloc (sizeof (struct process));
-  if (proc == NULL)
-  {
-    palloc_free_page (argv);
-    palloc_free_page (cmd_line_copy);
-    return TID_ERROR;
-  }
-  init_process (proc, argv);
-  tid_t tid = thread_create (argv[0], PRI_DEFAULT, start_process, proc);
+  init_process (child_proc, argv);
+  tid_t tid = thread_create (argv[0], PRI_DEFAULT, start_process, child_proc);
   if (tid == TID_ERROR)
-  {
-    free_process (proc);
-    palloc_free_page (cmd_line_copy);
-    return TID_ERROR;
-  }
+    {
+      process_refcount_free (child_proc);
+      palloc_free_page (cmd_line_copy);
+      return TID_ERROR;
+    }
+  child_proc->pid = tid;
+  lock_acquire (&proc->lock);
+  list_push_back (&proc->children, &child_proc->elem);
+  lock_release (&proc->lock);
+
+  sema_down (&child_proc->wait_sema); // Wait for the child process to load.
+  if (!child_proc->loaded) // If loading failed, return -1.
+    {
+      lock_acquire (&proc->lock);
+      list_remove (&child_proc->elem);
+      lock_release (&proc->lock);
+      palloc_free_page (cmd_line_copy);
+      return TID_ERROR;
+    }
   return tid;
 }
 
@@ -130,6 +149,8 @@ start_process (void *process_)
   bool success;
   char **argv = process->argv;
 
+  process->ref_count++;
+
   /* Initialize interrupt frame and load executable. */
   memset (&if_, 0, sizeof if_);
   if_.gs = if_.fs = if_.es = if_.ds = if_.ss = SEL_UDSEG;
@@ -139,10 +160,15 @@ start_process (void *process_)
 
   /* If load failed, quit. */
   if (!success)
-  {
-    free_process (process);
-    thread_exit ();
-  }
+    {
+      process->loaded = false;
+      sema_up (&process->wait_sema); // Wake up the parent process.
+      process_refcount_free (process);
+      thread_exit ();
+    }
+  
+  process->loaded = true;
+  sema_up (&process->wait_sema); // Wake up the parent process.
 
   /* Start the user process by simulating a return from an
      interrupt, implemented by intr_exit (in
@@ -164,10 +190,43 @@ start_process (void *process_)
    This function will be implemented in problem 2-2.  For now, it
    does nothing. */
 int
-process_wait (tid_t child_tid UNUSED) 
+process_wait (tid_t child_tid) 
 {
-  timer_sleep(10);
-  return -1;
+  struct thread *cur = thread_current ();
+  struct process *proc = cur->process;
+  struct process *child_proc = NULL;
+  int exit_status = -1;
+  lock_acquire (&proc->lock);
+  for (struct list_elem *e = list_begin (&proc->children); e != list_end (&proc->children); e = list_next (e))
+    {
+      struct process *p = list_entry (e, struct process, elem);
+      if (p->pid == child_tid)
+        {
+          child_proc = p;
+          break;
+        }
+    }
+  lock_release (&proc->lock);
+  if (child_proc == NULL)
+    return -1; // Not a child process.
+
+  lock_acquire (&child_proc->lock);
+  if (child_proc->waited)
+    {
+      lock_release (&child_proc->lock);
+      return -1; // Already waited for this process.
+    }
+  child_proc->waited = true;
+  lock_release (&child_proc->lock);
+
+  sema_down (&child_proc->wait_sema); // Wait for the child process to exit.
+
+  lock_acquire (&child_proc->lock);
+  exit_status = child_proc->exit_status;
+  list_remove (&child_proc->elem);
+  lock_release (&child_proc->lock);
+  process_refcount_free (child_proc);
+  return exit_status;
 }
 
 /** Free the current process's resources. */
@@ -303,12 +362,15 @@ load (char **argv, void (**eip) (void), void **esp)
   process_activate ();
 
   /* Open executable file. */
+  lock_acquire (&filesys_lock);
   file = filesys_open (prog_name);
   if (file == NULL) 
     {
       printf ("load: %s: open failed\n", prog_name);
       goto done; 
     }
+
+  file_deny_write (file); // Deny writes to the executable file until the process exits.
 
   /* Read and verify executable header. */
   if (file_read (file, &ehdr, sizeof ehdr) != sizeof ehdr
@@ -394,6 +456,7 @@ load (char **argv, void (**eip) (void), void **esp)
  done:
   /* We arrive here whether the load is successful or not. */
   file_close (file);
+  lock_release (&filesys_lock);
   return success;
 }
 

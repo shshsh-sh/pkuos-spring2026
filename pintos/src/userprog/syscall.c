@@ -56,6 +56,23 @@ is_all_valid_addr (const void *addr, size_t size)
   return true;
 }
 
+static bool
+is_valid_string (const char *str)
+{
+  if (!is_valid_addr (str))
+    return false;
+  
+  size_t len = 0;
+  while (true) {
+    if (!is_valid_addr (str + len))
+      return false;
+    if (str[len] == '\0')
+      break;
+    len++;
+  }
+  return true;
+}
+
 static void
 syscall_halt (void)
 {
@@ -67,13 +84,24 @@ syscall_exit (int status)
 {
   struct thread *cur = thread_current ();
   struct process *proc = cur->process;
-  printf("%s: exit(%d)\n", proc->argv[0], status);
   lock_acquire (&proc->lock);
+  const char* prog_name = proc->argv[0];
+  printf("%s: exit(%d)\n", prog_name, status);
+
+  // Allow other processes to write to the executable file after this process exits.
+  lock_acquire (&filesys_lock);
+  struct file *executable = filesys_open (prog_name);
+  if (executable != NULL)
+    {
+      file_allow_write (executable);
+      file_close (executable);
+    }
+  lock_release (&filesys_lock);
+
   proc->exit_status = status;
   proc->exited = true;
   lock_release (&proc->lock);
   sema_up (&proc->wait_sema);
-  process_exit ();
   process_refcount_free (proc);
   thread_exit ();
 }
@@ -81,7 +109,7 @@ syscall_exit (int status)
 static pid_t
 syscall_exec (const char *cmd_line)
 {
-  if (!is_valid_addr (cmd_line))
+  if (!is_valid_string (cmd_line))
     syscall_exit (-1);
   
   return process_execute (cmd_line);
@@ -96,7 +124,7 @@ syscall_wait (pid_t pid)
 static int
 syscall_create (const char *file, unsigned initial_size)
 {
-  if (!is_valid_addr (file))
+  if (!is_valid_string (file))
     syscall_exit (-1);
     
   lock_acquire (&filesys_lock);
@@ -108,7 +136,7 @@ syscall_create (const char *file, unsigned initial_size)
 static int
 syscall_remove (const char *file)
 {
-  if (!is_valid_addr (file))
+  if (!is_valid_string (file))
     syscall_exit (-1);
     
   lock_acquire (&filesys_lock);
@@ -120,7 +148,7 @@ syscall_remove (const char *file)
 static int
 syscall_open (const char *file)
 {
-  if (!is_valid_addr (file))
+  if (!is_valid_string (file))
     syscall_exit (-1);
 
   struct thread *cur = thread_current ();
