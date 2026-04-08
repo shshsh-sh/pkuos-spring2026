@@ -22,12 +22,14 @@
 #include "threads/palloc.h"
 #include "threads/pte.h"
 #include "threads/thread.h"
+#include "threads/synch.h"
 #ifdef USERPROG
 #include "userprog/process.h"
 #include "userprog/exception.h"
 #include "userprog/gdt.h"
 #include "userprog/syscall.h"
 #include "userprog/tss.h"
+#include "filesys/filesys.h"
 #else
 #include "tests/threads/tests.h"
 #endif
@@ -113,6 +115,11 @@ pintos_init (void)
 #ifdef USERPROG
   exception_init ();
   syscall_init ();
+#endif
+
+  /* Initialize basic file system. */
+#ifdef USERPROG
+  lock_init (&filesys_lock);
 #endif
 
   /* Start thread scheduler and enable interrupts. */
