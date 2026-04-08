@@ -90,12 +90,8 @@ syscall_exit (int status)
 
   // Allow other processes to write to the executable file after this process exits.
   lock_acquire (&filesys_lock);
-  struct file *executable = filesys_open (prog_name);
-  if (executable != NULL)
-    {
-      file_allow_write (executable);
-      file_close (executable);
-    }
+  struct file *executable = proc->executable;
+  file_close (executable);
   lock_release (&filesys_lock);
 
   proc->exit_status = status;

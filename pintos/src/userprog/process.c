@@ -21,7 +21,7 @@
 #include "devices/timer.h"
 
 static thread_func start_process NO_RETURN;
-static bool load (char **argv, void (**eip) (void), void **esp);
+static bool load (struct process *proc, void (**eip) (void), void **esp);
 static void free_process (struct process *proc);
 
 /**
@@ -156,7 +156,7 @@ start_process (void *process_)
   if_.gs = if_.fs = if_.es = if_.ds = if_.ss = SEL_UDSEG;
   if_.cs = SEL_UCSEG;
   if_.eflags = FLAG_IF | FLAG_MBS;
-  success = load (argv, &if_.eip, &if_.esp);
+  success = load (process, &if_.eip, &if_.esp);
 
   /* If load failed, quit. */
   if (!success)
@@ -372,22 +372,22 @@ static bool load_segment (struct file *file, off_t ofs, uint8_t *upage,
    Stores the executable's entry point into *EIP
    and its initial stack pointer into *ESP.
    Returns true if successful, false otherwise. */
-bool
-load (char **argv, void (**eip) (void), void **esp) 
+static bool
+load (struct process *proc, void (**eip) (void), void **esp) 
 {
   struct thread *t = thread_current ();
   struct Elf32_Ehdr ehdr;
   struct file *file = NULL;
   off_t file_ofs;
-  bool success = false;
   int i;
 
+  char **argv = proc->argv;
   const char *prog_name = argv[0];
 
   /* Allocate and activate page directory. */
   t->pagedir = pagedir_create ();
   if (t->pagedir == NULL) 
-    goto done;
+    return false;
   process_activate ();
 
   /* Open executable file. */
@@ -396,10 +396,12 @@ load (char **argv, void (**eip) (void), void **esp)
   if (file == NULL) 
     {
       printf ("load: %s: open failed\n", prog_name);
-      goto done; 
+      lock_release (&filesys_lock);
+      return false;
     }
 
   file_deny_write (file); // Deny writes to the executable file until the process exits.
+  proc->executable = file;
 
   /* Read and verify executable header. */
   if (file_read (file, &ehdr, sizeof ehdr) != sizeof ehdr
@@ -411,7 +413,7 @@ load (char **argv, void (**eip) (void), void **esp)
       || ehdr.e_phnum > 1024) 
     {
       printf ("load: %s: error loading executable\n", prog_name);
-      goto done; 
+      goto done;
     }
 
   /* Read program headers. */
@@ -480,13 +482,14 @@ load (char **argv, void (**eip) (void), void **esp)
   /* Start address. */
   *eip = (void (*) (void)) ehdr.e_entry;
 
-  success = true;
+  lock_release (&filesys_lock);
+  return true;
 
  done:
   /* We arrive here whether the load is successful or not. */
   file_close (file);
   lock_release (&filesys_lock);
-  return success;
+  return false;
 }
 
 /** load() helpers. */
