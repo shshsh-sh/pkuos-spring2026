@@ -164,7 +164,7 @@ syscall_open (const char *file)
 
   lock_acquire (&proc->lock);
   int fd = -2;
-  for (int i = 0; i < MAX_FD_COUNT; i++)
+  for (int i = STDOUT_FILENO + 1; i < MAX_FD_COUNT; i++)
   {
     if (proc->fd_table[i] == NULL)
     {
@@ -222,6 +222,8 @@ syscall_read (int fd, void *buffer, unsigned size)
       int c = input_getc ();
       if (c == -1)
         break;
+      if (!is_valid_addr (buf + i))
+        syscall_exit (-1);
       buf[i] = (uint8_t) c;
       bytes_read++;
     }
@@ -249,9 +251,9 @@ syscall_read (int fd, void *buffer, unsigned size)
 static int
 syscall_write (int fd, const void *buffer, unsigned size)
 {
-  if (!is_valid_addr (buffer))
+  if (!is_all_valid_addr (buffer, size))
     syscall_exit (-1);
-
+    
   if (fd == STDOUT_FILENO)
   {
     putbuf (buffer, size);
