@@ -418,7 +418,6 @@ syscall_handler (struct intr_frame *f)
         break;
       }
     default:
-      printf("[debug info] syscall_handler: syscall_num=%d not implemented\n", syscall_num);
-      // syscall_exit (-1);
+      PANIC("Caught unknown syscall\n");
   }
 }
