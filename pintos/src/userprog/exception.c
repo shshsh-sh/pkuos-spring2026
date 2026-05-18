@@ -1,10 +1,16 @@
 #include "userprog/exception.h"
 #include <inttypes.h>
 #include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 #include "userprog/gdt.h"
 #include "userprog/process.h"
+#include "userprog/pagedir.h"
+#include "vm/page.h"
+#include "vm/frame.h"
 #include "threads/interrupt.h"
 #include "threads/thread.h"
+#include "threads/vaddr.h"
 
 /** Number of page faults processed. */
 static long long page_fault_cnt;
@@ -149,14 +155,85 @@ page_fault (struct intr_frame *f)
   write = (f->error_code & PF_W) != 0;
   user = (f->error_code & PF_U) != 0;
 
-  /* To implement virtual memory, delete the rest of the function
-     body, and replace it with code that brings in the page to
-     which fault_addr refers. */
-  printf ("Page fault at %p: %s error %s page in %s context.\n",
-          fault_addr,
-          not_present ? "not present" : "rights violation",
-          write ? "writing" : "reading",
-          user ? "user" : "kernel");
-  kill (f);
+  /* Kernel panic. */
+  if (!user)
+   PANIC ("Kernel page fault at %p: error code %04x", fault_addr, f->error_code);
+
+  /*  */
+
+  void *upage = pg_round_down (fault_addr);
+  struct thread *cur = thread_current ();
+
+  struct spt_entry *spte = spt_lookup (&cur->process->spt, upage);
+
+  if (spte == NULL)
+  {
+      if (upage >= (void *) PHYS_BASE - 32 * PGSIZE && upage < (void *) PHYS_BASE) // Stack growth.
+      {
+         spte = malloc (sizeof (struct spt_entry));
+         if (spte == NULL)
+         {
+            printf ("Page fault at %p: failed to allocate supplemental page table entry\n", fault_addr);
+            kill (f);
+            NOT_REACHED ();
+         }
+          
+         spte->upage = upage;
+         spte->writable = true;
+         spte->file = NULL;
+         spte->file_offset = 0;
+         spte->read_bytes = 0;
+         spte->zero_bytes = PGSIZE;
+         spte->swap_slot = 0;
+         spte->type = PAGE_ZERO;
+         spte->frame = NULL;
+
+         spt_insert_page (&cur->process->spt, spte);
+      }
+      else
+      {
+          printf ("Page fault at %p: no supplemental page entry\n", fault_addr);
+          kill (f);
+          NOT_REACHED ();
+      }
+  }
+  
+  struct frame *frame = frame_alloc (PAL_ZERO);
+  if (frame == NULL)
+  {
+      printf ("Page fault at %p: failed to allocate frame\n", fault_addr);
+      kill (f);
+      NOT_REACHED ();
+  }
+
+  switch (spte->type)
+    {
+    case PAGE_ZERO:
+      break;
+    case PAGE_FILE:
+      file_seek (spte->file, spte->file_offset);
+      if (file_read (spte->file, frame->kpage, spte->read_bytes) != (int) spte->read_bytes)
+        {
+          printf ("Page fault at %p: failed to read from file\n", fault_addr);
+          frame_free (frame);
+          kill (f);
+          NOT_REACHED ();
+        }
+      break;
+    case PAGE_SWAP:
+      PANIC ("Page fault at %p: page swapping not implemented\n", fault_addr);
+      break;
+    }
+
+  if (!install_page (spte->upage, frame->kpage, spte->writable))
+    {
+      printf ("Page fault at %p: failed to install page\n", fault_addr);
+      frame_free (frame);
+      kill (f);
+      NOT_REACHED ();
+    }
+
+   spte->frame = frame;
+   frame->spte = spte;
 }
 

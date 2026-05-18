@@ -295,8 +295,8 @@ process_exit (int status)
   lock_release (&proc->lock);
 
   sema_up (&proc->wait_sema);
-  process_refcount_free (proc);
   hash_destroy(&proc->spt, spt_destroy_func);
+  process_refcount_free (proc);
   thread_exit ();
 }
 
@@ -508,9 +508,6 @@ load (struct process *proc, void (**eip) (void), void **esp)
   return false;
 }
 
-/** load() helpers. */
-
-static bool install_page (void *upage, void *kpage, bool writable);
 
 /** Checks whether PHDR describes a valid, loadable segment in
    FILE and returns true if so, false otherwise. */
@@ -579,7 +576,6 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
   ASSERT (pg_ofs (upage) == 0);
   ASSERT (ofs % PGSIZE == 0);
 
-  file_seek (file, ofs);
   while (read_bytes > 0 || zero_bytes > 0) 
     {
       /* Calculate how to fill this page.
@@ -589,25 +585,33 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
       size_t page_zero_bytes = PGSIZE - page_read_bytes;
 
       /* Get a page of memory. */
-      struct frame *f = frame_alloc (PAL_ZERO); // Hardcoded user space.
-      if (f == NULL)
+      
+      struct spt_entry *spte = malloc (sizeof (struct spt_entry));
+      if (spte == NULL)
         return false;
 
-      /* Load this page. */
-      if (file_read (file, f->kpage, page_read_bytes) != (int) page_read_bytes)
-        {
-          frame_free (f);
-          return false; 
-        }
+      spte->upage = upage;
+      spte->writable = writable;
+      spte->file = file;
+      spte->file_offset = ofs;
+      spte->read_bytes = page_read_bytes;
+      spte->zero_bytes = page_zero_bytes;
+      spte->swap_slot = 0;
+      spte->frame = NULL;
 
-      /* Add the page to the process's address space. */
-      if (!install_page (upage, f->kpage, writable)) 
+      if (page_read_bytes == PGSIZE || page_read_bytes > 0)
+        spte->type = PAGE_FILE;
+      else
+        spte->type = PAGE_ZERO;
+
+      if (!spt_insert_page (&thread_current()->process->spt, spte))
         {
-          frame_free (f);
-          return false; 
+          free (spte);
+          return false;
         }
 
       /* Advance. */
+      ofs += PGSIZE;
       read_bytes -= page_read_bytes;
       zero_bytes -= page_zero_bytes;
       upage += PGSIZE;
@@ -623,11 +627,38 @@ setup_stack (void **esp, char **argv)
   struct frame *f = frame_alloc (PAL_ZERO); // Hardcoded user space.
   if (f == NULL)
     return false;
-  if (!install_page (((uint8_t *) PHYS_BASE) - PGSIZE, f->kpage, true))
+
+  uint8_t *upage = (uint8_t *) PHYS_BASE - PGSIZE;
+  if (!install_page (upage, f->kpage, true))
     {
       frame_free (f);
       return false;
     }
+
+  struct spt_entry *spte = malloc (sizeof (struct spt_entry));
+  if (spte == NULL)
+    {
+      frame_free (f);
+      return false;
+    }
+  spte->upage = upage;
+  spte->writable = true;
+  spte->file = NULL;
+  spte->file_offset = 0;
+  spte->read_bytes = 0;
+  spte->zero_bytes = PGSIZE;
+  spte->swap_slot = 0;
+  spte->type = PAGE_ZERO;
+  spte->frame = f;
+
+  if (!spt_insert_page (&thread_current()->process->spt, spte))
+    {
+      free (spte);
+      frame_free (f);
+      return false;
+    }
+
+  *esp = PHYS_BASE;
   
   int argc = 0;
   while (argv[argc] != NULL) 
@@ -662,24 +693,4 @@ setup_stack (void **esp, char **argv)
   *esp -= sizeof(void *);
   *(void **) *esp = NULL;
   return true;
-}
-
-/** Adds a mapping from user virtual address UPAGE to kernel
-   virtual address KPAGE to the page table.
-   If WRITABLE is true, the user process may modify the page;
-   otherwise, it is read-only.
-   UPAGE must not already be mapped.
-   KPAGE should probably be a page obtained from the user pool
-   with palloc_get_page().
-   Returns true on success, false if UPAGE is already mapped or
-   if memory allocation fails. */
-static bool
-install_page (void *upage, void *kpage, bool writable)
-{
-  struct thread *t = thread_current ();
-
-  /* Verify that there's not already a page at that virtual
-     address, then map our page there. */
-  return (pagedir_get_page (t->pagedir, upage) == NULL
-          && pagedir_set_page (t->pagedir, upage, kpage, writable));
 }

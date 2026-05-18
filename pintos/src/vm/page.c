@@ -2,7 +2,10 @@
 #include <hash.h>
 #include <stdlib.h>
 #include "threads/malloc.h"
+#include "threads/thread.h"
 #include "threads/vaddr.h"
+#include "userprog/pagedir.h"
+#include "vm/frame.h"
 
 unsigned
 spt_hash_func(const struct hash_elem *e, void *aux UNUSED)
@@ -41,7 +44,13 @@ spt_destroy_func(struct hash_elem *e, void *aux UNUSED)
   struct spt_entry *page = hash_entry (e, struct spt_entry, hash_elem);
   if (page->frame != NULL)
     {
-      // todo: free the frame
+      pagedir_clear_page (thread_current()->pagedir, page->upage);
+      frame_free (page->frame);
+    }
+
+  if (page->type == PAGE_SWAP)
+    {
+      // TODO: Free swap slot.
     }
   free (page);
 }
