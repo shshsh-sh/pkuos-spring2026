@@ -650,6 +650,8 @@ setup_stack (void **esp, char **argv)
   spte->swap_slot = 0;
   spte->type = PAGE_ZERO;
   spte->frame = f;
+  spte->pagedir = thread_current ()->pagedir;
+  f->spte = spte;
 
   if (!spt_insert_page (&thread_current()->process->spt, spte))
     {

@@ -6,8 +6,9 @@
 #include "userprog/gdt.h"
 #include "userprog/process.h"
 #include "userprog/pagedir.h"
-#include "vm/page.h"
 #include "vm/frame.h"
+#include "vm/page.h"
+#include "vm/swap.h"
 #include "threads/interrupt.h"
 #include "threads/thread.h"
 #include "threads/vaddr.h"
@@ -187,6 +188,7 @@ page_fault (struct intr_frame *f)
          spte->swap_slot = 0;
          spte->type = PAGE_ZERO;
          spte->frame = NULL;
+         spte->pagedir = cur->pagedir;
 
          spt_insert_page (&cur->process->spt, spte);
       }
@@ -221,7 +223,7 @@ page_fault (struct intr_frame *f)
         }
       break;
     case PAGE_SWAP:
-      PANIC ("Page fault at %p: page swapping not implemented\n", fault_addr);
+      swap_read (spte->swap_slot, frame->kpage);
       break;
     }
 
@@ -235,5 +237,6 @@ page_fault (struct intr_frame *f)
 
    spte->frame = frame;
    frame->spte = spte;
+   spte->pagedir = cur->pagedir;
 }
 

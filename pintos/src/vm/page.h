@@ -10,7 +10,7 @@ enum page_type
   {
     PAGE_ZERO,          /**< A page that is filled with zeros. */
     PAGE_FILE,          /**< A page that is backed by a file. */
-    PAGE_SWAP           /**< A page that is currently swapped out to disk. */
+    PAGE_SWAP,          /**< A page that is currently swapped out to disk. */
   };
 
 struct spt_entry
@@ -25,6 +25,7 @@ struct spt_entry
     size_t zero_bytes;            /**< Number of bytes to zero (if type is PAGE_FILE). */
     block_sector_t swap_slot;     /**< Swap slot index (if type is PAGE_SWAP). */
     struct frame *frame;          /**< The frame this page is loaded into (NULL if not in memory). */
+    uint32_t *pagedir;            /**< The page directory of the owning process. */
   };
 
 unsigned spt_hash_func(const struct hash_elem *e, void *aux);

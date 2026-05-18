@@ -6,6 +6,7 @@
 #include "threads/vaddr.h"
 #include "userprog/pagedir.h"
 #include "vm/frame.h"
+#include "vm/swap.h"
 
 unsigned
 spt_hash_func(const struct hash_elem *e, void *aux UNUSED)
@@ -48,9 +49,7 @@ spt_destroy_func(struct hash_elem *e, void *aux UNUSED)
       frame_free (page->frame);
     }
 
-  if (page->type == PAGE_SWAP)
-    {
-      // TODO: Free swap slot.
-    }
+  if (page->type == PAGE_SWAP && page->swap_slot != 0)
+    swap_free (page->swap_slot);
   free (page);
 }
