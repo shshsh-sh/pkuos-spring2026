@@ -17,6 +17,8 @@
 #include "threads/palloc.h"
 #include "threads/thread.h"
 #include "threads/vaddr.h"
+#include "vm/page.h"
+#include "vm/frame.h"
 
 #include "devices/timer.h"
 
@@ -54,6 +56,8 @@ init_process (struct process *proc, char **argv)
   proc->fd_count = 0;
   proc->ref_count = 1;
   proc->cmd_line_cpy = NULL;
+  hash_init (&proc->spt, spt_hash_func, spt_less_func, NULL);
+  list_init (&proc->mmap_list);
 }
 
 void process_refcount_free (struct process *proc)
@@ -292,6 +296,7 @@ process_exit (int status)
 
   sema_up (&proc->wait_sema);
   process_refcount_free (proc);
+  hash_destroy(&proc->spt, spt_destroy_func);
   thread_exit ();
 }
 
@@ -584,22 +589,21 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
       size_t page_zero_bytes = PGSIZE - page_read_bytes;
 
       /* Get a page of memory. */
-      uint8_t *kpage = palloc_get_page (PAL_USER);
-      if (kpage == NULL)
+      struct frame *f = frame_alloc (PAL_ZERO); // Hardcoded user space.
+      if (f == NULL)
         return false;
 
       /* Load this page. */
-      if (file_read (file, kpage, page_read_bytes) != (int) page_read_bytes)
+      if (file_read (file, f->kpage, page_read_bytes) != (int) page_read_bytes)
         {
-          palloc_free_page (kpage);
+          frame_free (f);
           return false; 
         }
-      memset (kpage + page_read_bytes, 0, page_zero_bytes);
 
       /* Add the page to the process's address space. */
-      if (!install_page (upage, kpage, writable)) 
+      if (!install_page (upage, f->kpage, writable)) 
         {
-          palloc_free_page (kpage);
+          frame_free (f);
           return false; 
         }
 
@@ -616,21 +620,14 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
 static bool
 setup_stack (void **esp, char **argv) 
 {
-  uint8_t *kpage;
-  bool success = false;
-
-  kpage = palloc_get_page (PAL_USER | PAL_ZERO);
-  if (kpage != NULL) 
-    {
-      success = install_page (((uint8_t *) PHYS_BASE) - PGSIZE, kpage, true);
-      if (success)
-        *esp = PHYS_BASE;
-      else
-        palloc_free_page (kpage);
-    }
-  
-  if (!success)
+  struct frame *f = frame_alloc (PAL_ZERO); // Hardcoded user space.
+  if (f == NULL)
     return false;
+  if (!install_page (((uint8_t *) PHYS_BASE) - PGSIZE, f->kpage, true))
+    {
+      frame_free (f);
+      return false;
+    }
   
   int argc = 0;
   while (argv[argc] != NULL) 

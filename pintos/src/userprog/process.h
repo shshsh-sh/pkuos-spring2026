@@ -4,6 +4,7 @@
 #include "threads/thread.h"
 #include "threads/synch.h"
 #include "filesys/file.h"
+#include <hash.h>
 
 #define MAX_FD_COUNT 128
 
@@ -33,6 +34,8 @@ struct process
     int ref_count;                         /**< Reference count for this process. */
     struct file *executable;               /**< The executable file of this process. */
     char *cmd_line_cpy;                    /**< A copy of the command line for this process. */
+    struct hash spt;                       /**< Supplemental page table for this process. */
+    struct list mmap_list;                 /**< List of memory-mapped files for this process. */
   };
 
 tid_t process_execute (const char *file_name);
