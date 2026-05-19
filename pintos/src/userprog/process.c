@@ -268,31 +268,40 @@ process_exit (int status)
   struct thread *cur = thread_current ();
   struct process *proc = cur->process;
 
-  lock_acquire (&proc->lock);
-  const char* prog_name = proc->argv[0];
-  printf("%s: exit(%d)\n", prog_name, status);
-  lock_release (&proc->lock);
+  bool held_proc = lock_held_by_current_thread (&proc->lock);
+  if (held_proc || lock_try_acquire (&proc->lock))
+  {
+      const char* prog_name = proc->argv[0];
+      printf("%s: exit(%d)\n", prog_name, status);
+      if (!held_proc)
+        lock_release (&proc->lock);
+  }
 
   // Allow other processes to write to the executable file after this process exits.
-  lock_acquire (&filesys_lock);
-  struct file *executable = proc->executable;
-  if (executable != NULL)
-    {
-      file_allow_write (executable);
-      file_close (executable);
-    }
-  for (int i = 2; i < MAX_FD_COUNT; i++) {
-    if (proc->fd_table[i] != NULL && proc->fd_table[i] != executable) {
-      file_close (proc->fd_table[i]);
-      proc->fd_table[i] = NULL;
-    }
+  bool held_fs = lock_held_by_current_thread (&filesys_lock);
+  if (held_fs || lock_try_acquire (&filesys_lock))
+  {
+      struct file *executable = proc->executable;
+      if (executable != NULL) {
+          file_allow_write (executable);
+          file_close (executable);
+      }
+      for (int i = 2; i < MAX_FD_COUNT; i++)
+          if (proc->fd_table[i] != NULL && proc->fd_table[i] != executable) {
+              file_close (proc->fd_table[i]);
+              proc->fd_table[i] = NULL;
+          }
+      if (!held_fs) lock_release (&filesys_lock);
   }
-  lock_release (&filesys_lock);
 
-  lock_acquire (&proc->lock);
-  proc->exit_status = status;
-  proc->exited = true;
-  lock_release (&proc->lock);
+  held_proc = lock_held_by_current_thread (&proc->lock);
+  if (held_proc || lock_try_acquire (&proc->lock))
+  {
+      proc->exit_status = status;
+      proc->exited = true;
+      if (!held_proc)
+        lock_release (&proc->lock);
+  }
 
   sema_up (&proc->wait_sema);
   hash_destroy(&proc->spt, spt_destroy_func);

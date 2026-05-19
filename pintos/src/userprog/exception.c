@@ -156,25 +156,55 @@ page_fault (struct intr_frame *f)
   write = (f->error_code & PF_W) != 0;
   user = (f->error_code & PF_U) != 0;
 
+  void *upage;
+  struct thread *cur = thread_current ();
+  struct spt_entry *spte;
+
   /* Kernel panic. */
   if (!user)
-   PANIC ("Kernel page fault at %p: error code %04x", fault_addr, f->error_code);
+    {
+      void *kupage = pg_round_down (fault_addr);
+      if (!is_user_vaddr (fault_addr) || spt_lookup (&thread_current()->process->spt, kupage) == NULL)
+         {
+           if (is_user_vaddr (fault_addr))
+           {
+             process_exit (-1);
+             NOT_REACHED ();
+           }
+           printf ("Kernel page fault at %p: invalid kernel address\n", fault_addr);
+           intr_dump_frame (f);
+           PANIC ("Kernel page fault");
+         }
+      if (not_present)
+         {
+            upage = kupage;
+            spte = spt_lookup (&cur->process->spt, upage);
+            goto handle_page_load;
+         }
+      else
+         {
+           process_exit (-1);
+           NOT_REACHED ();
+         }
+    }
 
   /*  */
 
-  void *upage = pg_round_down (fault_addr);
-  struct thread *cur = thread_current ();
-
-  struct spt_entry *spte = spt_lookup (&cur->process->spt, upage);
+  upage = pg_round_down (fault_addr);
+  spte = spt_lookup (&cur->process->spt, upage);
 
   if (spte == NULL)
   {
-      if (upage >= (void *) PHYS_BASE - 32 * PGSIZE && upage < (void *) PHYS_BASE) // Stack growth.
+      if (upage >= (void *) PHYS_BASE - 0x800000 && upage < (void *) PHYS_BASE) // Stack growth.
       {
+         if (fault_addr < (void *) f->esp - 32) // Guard page.
+         {
+            kill (f);
+            NOT_REACHED ();
+         }
          spte = malloc (sizeof (struct spt_entry));
          if (spte == NULL)
          {
-            printf ("Page fault at %p: failed to allocate supplemental page table entry\n", fault_addr);
             kill (f);
             NOT_REACHED ();
          }
@@ -194,16 +224,16 @@ page_fault (struct intr_frame *f)
       }
       else
       {
-          printf ("Page fault at %p: no supplemental page entry\n", fault_addr);
           kill (f);
           NOT_REACHED ();
       }
   }
+
+handle_page_load:;
   
   struct frame *frame = frame_alloc (PAL_ZERO);
   if (frame == NULL)
   {
-      printf ("Page fault at %p: failed to allocate frame\n", fault_addr);
       kill (f);
       NOT_REACHED ();
   }
@@ -216,7 +246,6 @@ page_fault (struct intr_frame *f)
       file_seek (spte->file, spte->file_offset);
       if (file_read (spte->file, frame->kpage, spte->read_bytes) != (int) spte->read_bytes)
         {
-          printf ("Page fault at %p: failed to read from file\n", fault_addr);
           frame_free (frame);
           kill (f);
           NOT_REACHED ();
@@ -231,7 +260,6 @@ page_fault (struct intr_frame *f)
 
   if (!install_page (spte->upage, frame->kpage, spte->writable))
     {
-      printf ("Page fault at %p: failed to install page\n", fault_addr);
       frame_free (frame);
       kill (f);
       NOT_REACHED ();

@@ -97,8 +97,8 @@ do_eviction (void)
       struct spt_entry *spte = victim->spte;
       void *kpage = victim->kpage;
       list_remove (&victim->elem);
-      pagedir_clear_page (spte->pagedir, spte->upage);
       bool dirty = pagedir_is_dirty (spte->pagedir, spte->upage);
+      pagedir_clear_page (spte->pagedir, spte->upage);
       spte->frame = NULL;
       free (victim);
       

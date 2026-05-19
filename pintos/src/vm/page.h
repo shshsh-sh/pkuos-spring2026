@@ -34,4 +34,8 @@ struct spt_entry *spt_lookup(struct hash *spt, const void *upage);
 bool spt_insert_page(struct hash *spt, struct spt_entry *page);
 void spt_destroy_func(struct hash_elem *e, void *aux);
 
+bool vm_load_page (void *upage, bool pin);
+bool vm_load_and_pin_range (void *addr, size_t size);
+void vm_unpin_range (void *addr, size_t size);
+
 #endif /* vm/page.h */

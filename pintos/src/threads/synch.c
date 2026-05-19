@@ -249,6 +249,8 @@ lock_acquire (struct lock *lock)
       while (l != NULL && t != NULL && d-- > 0)
       {
         l->max_priority = max (l->max_priority, t->priority);
+        if (l->holder == NULL)
+          break;
         l->holder->priority = max (l->holder->priority, t->priority);
         l->holder->donated_priority = max (l->holder->donated_priority, t->priority);
         t = l->holder;
@@ -291,7 +293,11 @@ lock_try_acquire (struct lock *lock)
 
   success = sema_try_down (&lock->semaphore);
   if (success)
+  {
     lock->holder = thread_current ();
+    if (!thread_mlfqs)
+      list_insert_ordered (&thread_current ()->locks, &lock->elem, lock_priority_greater, NULL);
+  }
   return success;
 }
 

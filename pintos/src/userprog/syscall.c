@@ -10,6 +10,8 @@
 #include "userprog/pagedir.h"
 #include "filesys/filesys.h"
 #include "filesys/file.h"
+#include "vm/page.h"
+#include "vm/frame.h"
 
 #define STDIN_FILENO 0
 #define STDOUT_FILENO 1
@@ -41,7 +43,12 @@ syscall_init (void)
 static bool
 is_valid_addr (const void *addr) 
 {
-  return addr != NULL && is_user_vaddr (addr) && pagedir_get_page (thread_current ()->pagedir, addr) != NULL;
+  if (addr == NULL || !is_user_vaddr (addr))
+    return false;
+  struct thread *cur = thread_current ();
+  if (pagedir_get_page (cur->pagedir, addr) != NULL)
+    return true;
+  return vm_load_page ((void *) addr, false);
 }
 
 static bool
@@ -172,16 +179,16 @@ syscall_filesize (int fd)
   struct thread *cur = thread_current ();
   struct process *proc = cur->process;
 
+  lock_acquire (&filesys_lock);
   lock_acquire (&proc->lock);
   if (fd < 0 || fd >= MAX_FD_COUNT || proc->fd_table[fd] == NULL)
   {
     lock_release (&proc->lock);
+    lock_release (&filesys_lock);
     return -1;
   }
   struct file *f = proc->fd_table[fd];
   lock_release (&proc->lock);
-
-  lock_acquire (&filesys_lock);
   int size = file_length (f);
   lock_release (&filesys_lock);
   return size;
@@ -210,21 +217,42 @@ syscall_read (int fd, void *buffer, unsigned size)
     return bytes_read;
   }
 
+  if (size > 0)
+  {
+    void *start = pg_round_down (buffer);
+    void *end = pg_round_down (buffer + size - 1);
+    struct thread *cur = thread_current ();
+    for (void *p = start; p <= end; p += PGSIZE)
+    {
+      if (!vm_load_page (p, true))
+        syscall_exit (-1);
+      
+      struct spt_entry *spte = spt_lookup (&cur->process->spt, p);
+      if (spte == NULL || !spte->writable)
+        syscall_exit (-1);
+    }
+  }
+
   struct thread *cur = thread_current ();
   struct process *proc = cur->process;
 
+  lock_acquire (&filesys_lock);
   lock_acquire (&proc->lock);
   if (fd < 0 || fd >= MAX_FD_COUNT || proc->fd_table[fd] == NULL)
   {
     lock_release (&proc->lock);
+    lock_release (&filesys_lock);
     return -1;
   }
   struct file *f = proc->fd_table[fd];
   lock_release (&proc->lock);
 
-  lock_acquire (&filesys_lock);
   int bytes_read = file_read (f, buffer, size);
   lock_release (&filesys_lock);
+
+  if (size > 0)
+    vm_unpin_range (buffer, size);
+
   return bytes_read;
 }
 
@@ -233,6 +261,22 @@ syscall_write (int fd, const void *buffer, unsigned size)
 {
   if (!is_all_valid_addr (buffer, size))
     syscall_exit (-1);
+
+  if (size > 0)
+  {
+    void *start = pg_round_down (buffer);
+    void *end = pg_round_down (buffer + size - 1);
+    struct thread *cur = thread_current ();
+    for (void *p = start; p <= end; p += PGSIZE)
+    {
+      if (!vm_load_page (p, true))
+        syscall_exit (-1);
+      
+      struct spt_entry *spte = spt_lookup (&cur->process->spt, p);
+      if (spte == NULL || !spte->writable)
+        syscall_exit (-1);
+    }
+  }
     
   if (fd == STDOUT_FILENO)
   {
@@ -243,18 +287,23 @@ syscall_write (int fd, const void *buffer, unsigned size)
   struct thread *cur = thread_current ();
   struct process *proc = cur->process;
 
+  lock_acquire (&filesys_lock);
   lock_acquire (&proc->lock);
   if (fd < 0 || fd >= MAX_FD_COUNT || proc->fd_table[fd] == NULL)
   {
     lock_release (&proc->lock);
+    lock_release (&filesys_lock);
     return -1;
   }
   struct file *f = proc->fd_table[fd];
   lock_release (&proc->lock);
 
-  lock_acquire (&filesys_lock);
   int bytes_written = file_write (f, buffer, size);
   lock_release (&filesys_lock);
+
+  if (size > 0)
+    vm_unpin_range (buffer, size);
+
   return bytes_written;
 }
 
@@ -263,16 +312,18 @@ syscall_seek (int fd, unsigned position)
 {
   struct thread *cur = thread_current ();
   struct process *proc = cur->process;
+
+  lock_acquire (&filesys_lock);
   lock_acquire (&proc->lock);
   if (fd < 0 || fd >= MAX_FD_COUNT || proc->fd_table[fd] == NULL)
   {
     lock_release (&proc->lock);
+    lock_release (&filesys_lock);
     return -1;
   }
   struct file *f = proc->fd_table[fd];
   lock_release (&proc->lock);
 
-  lock_acquire (&filesys_lock);
   file_seek (f, position);
   lock_release (&filesys_lock);
   return 0;
@@ -283,16 +334,18 @@ syscall_tell (int fd)
 {
   struct thread *cur = thread_current ();
   struct process *proc = cur->process;
+
+  lock_acquire (&filesys_lock);
   lock_acquire (&proc->lock);
   if (fd < 0 || fd >= MAX_FD_COUNT || proc->fd_table[fd] == NULL)
   {
     lock_release (&proc->lock);
+    lock_release (&filesys_lock);
     return -1;
   }
   struct file *f = proc->fd_table[fd];
   lock_release (&proc->lock);
 
-  lock_acquire (&filesys_lock);
   unsigned position = file_tell (f);
   lock_release (&filesys_lock);
   return position;
