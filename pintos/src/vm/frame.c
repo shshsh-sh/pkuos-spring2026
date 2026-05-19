@@ -83,6 +83,8 @@ do_eviction (void)
 
       if (victim->pinned)
         continue;  // Skip pinned frames.
+      if (victim->spte == NULL)
+        continue;  // Skip frames that are not currently mapped to any page.
 
       bool accessed = pagedir_is_accessed (victim->spte->pagedir, victim->spte->upage);
       if (accessed)
@@ -113,6 +115,10 @@ do_eviction (void)
             {
               spte->swap_slot = swap_alloc ();
               spte->type = PAGE_SWAP;
+            }
+          else if (spte->swap_slot == 0)
+            {
+              spte->swap_slot = swap_alloc ();
             }
           swap_write (spte->swap_slot, kpage);
 

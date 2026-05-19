@@ -224,6 +224,8 @@ page_fault (struct intr_frame *f)
       break;
     case PAGE_SWAP:
       swap_read (spte->swap_slot, frame->kpage);
+      swap_free (spte->swap_slot);
+      spte->swap_slot = 0;
       break;
     }
 
