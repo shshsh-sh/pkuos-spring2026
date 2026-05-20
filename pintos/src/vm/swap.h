@@ -10,4 +10,4 @@ void swap_free (block_sector_t slot);
 void swap_write (block_sector_t slot, void *kpage);
 void swap_read (block_sector_t slot, void *kpage);
 
-#endif
+#endif /* vm/swap.h */

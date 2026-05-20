@@ -65,7 +65,33 @@ vm_load_page (void *upage, bool pin)
   struct thread *cur = thread_current ();
   struct spt_entry *spte = spt_lookup (&cur->process->spt, upage);
   if (spte == NULL)
-    return false;
+    {
+      // No page entry for this address. Check if it's a stack growth.
+      if (upage >= (void *) PHYS_BASE - 0x800000 && upage < (void *) PHYS_BASE) // Stack growth.
+        {
+          if ((uintptr_t) upage < (uintptr_t) cur->user_esp - 32) // Not a valid stack access.
+            return false;
+          
+          spte = malloc (sizeof (struct spt_entry));
+          if (spte == NULL)
+            return false;
+          
+          spte->upage = upage;
+          spte->writable = true;
+          spte->file = NULL;
+          spte->file_offset = 0;
+          spte->read_bytes = 0;
+          spte->zero_bytes = PGSIZE;
+          spte->swap_slot = 0;
+          spte->type = PAGE_ZERO;
+          spte->frame = NULL;
+          spte->pagedir = cur->pagedir;
+
+          spt_insert_page (&cur->process->spt, spte);
+        }
+      else
+        return false;  // Not a valid page and not stack growth.
+    }
   if (spte->frame != NULL)
     return true;  // Page is already loaded.
   

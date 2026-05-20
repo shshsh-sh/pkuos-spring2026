@@ -4,6 +4,7 @@
 #include "threads/thread.h"
 #include "threads/synch.h"
 #include "filesys/file.h"
+#include "vm/mmap.h"
 #include <hash.h>
 
 #define MAX_FD_COUNT 128
@@ -36,6 +37,7 @@ struct process
     char *cmd_line_cpy;                    /**< A copy of the command line for this process. */
     struct hash spt;                       /**< Supplemental page table for this process. */
     struct list mmap_list;                 /**< List of memory-mapped files for this process. */
+    mapid_t next_mapid;                    /**< Next memory mapping ID to assign. */
   };
 
 tid_t process_execute (const char *file_name);

@@ -58,6 +58,7 @@ init_process (struct process *proc, char **argv)
   proc->cmd_line_cpy = NULL;
   hash_init (&proc->spt, spt_hash_func, spt_less_func, NULL);
   list_init (&proc->mmap_list);
+  proc->next_mapid = 1;
 }
 
 void process_refcount_free (struct process *proc)

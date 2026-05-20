@@ -375,6 +375,8 @@ static void
 syscall_handler (struct intr_frame *f) 
 {
   int *esp = f->esp;
+
+  thread_current ()->user_esp = esp;  // Save user stack pointer for future use (e.g., in page fault handler).
   
   if (!is_all_valid_addr (esp, sizeof(int)))
     syscall_exit (-1);

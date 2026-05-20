@@ -5,6 +5,7 @@
 #include <stdbool.h>
 #include "devices/block.h"
 #include "filesys/off_t.h"
+#include "vm/mmap.h"
 
 enum page_type
   {
@@ -26,6 +27,7 @@ struct spt_entry
     block_sector_t swap_slot;     /**< Swap slot index (if type is PAGE_SWAP). */
     struct frame *frame;          /**< The frame this page is loaded into (NULL if not in memory). */
     uint32_t *pagedir;            /**< The page directory of the owning process. */
+    mapid_t mapid;                /**< The memory mapping ID (if this page is part of a memory-mapped file). */
   };
 
 unsigned spt_hash_func(const struct hash_elem *e, void *aux);

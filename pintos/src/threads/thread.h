@@ -98,6 +98,7 @@ struct thread
     int base_priority;                  /**< Base priority before donations. */
     int donated_priority;               /**< Priority donated by other threads. */
     struct lock *waiting_lock;          /**< Lock the thread is waiting on, if any. */
+    void *user_esp;                     /**< User stack pointer (for user processes). */
     struct list locks;                  /**< List of locks held by the thread. */
 
     /* Shared between thread.c and synch.c. */

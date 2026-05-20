@@ -164,10 +164,40 @@ page_fault (struct intr_frame *f)
   if (!user)
     {
       void *kupage = pg_round_down (fault_addr);
-      if (!is_user_vaddr (fault_addr) || spt_lookup (&thread_current()->process->spt, kupage) == NULL)
+      if (!is_user_vaddr (fault_addr) || spt_lookup (&cur->process->spt, kupage) == NULL)
          {
            if (is_user_vaddr (fault_addr))
            {
+             if (kupage >= (void *) PHYS_BASE - 0x800000 && kupage < (void *) PHYS_BASE) // Stack growth.
+             {
+                void *user_esp = cur->user_esp;
+                if (user_esp == NULL || (uintptr_t) fault_addr < (uintptr_t) user_esp - 32) // Not a valid stack access.
+                {
+                  process_exit (-1);
+                  NOT_REACHED ();
+                }
+                struct spt_entry *new_spte = malloc (sizeof (struct spt_entry));
+                if (new_spte == NULL)
+                {
+                  process_exit (-1);
+                  NOT_REACHED ();
+                }
+                new_spte->upage = kupage;
+                new_spte->writable = true;
+                new_spte->file = NULL;
+                new_spte->file_offset = 0;
+                new_spte->read_bytes = 0;
+                new_spte->zero_bytes = PGSIZE;
+                new_spte->swap_slot = 0;
+                new_spte->type = PAGE_ZERO;
+                new_spte->frame = NULL;
+                new_spte->pagedir = cur->pagedir;
+                spt_insert_page (&cur->process->spt, new_spte);
+
+                upage = kupage;
+                spte = new_spte;
+                goto handle_page_load;
+             }
              process_exit (-1);
              NOT_REACHED ();
            }
@@ -197,7 +227,8 @@ page_fault (struct intr_frame *f)
   {
       if (upage >= (void *) PHYS_BASE - 0x800000 && upage < (void *) PHYS_BASE) // Stack growth.
       {
-         if (fault_addr < (void *) f->esp - 32) // Guard page.
+         void *user_esp = user ? f->esp : cur->user_esp;
+         if (user_esp == NULL || (uintptr_t) fault_addr < (uintptr_t) user_esp - 32) // Not a valid stack access.
          {
             kill (f);
             NOT_REACHED ();
