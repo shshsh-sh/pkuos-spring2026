@@ -85,6 +85,7 @@ vm_load_page (void *upage, bool pin)
           spte->swap_slot = 0;
           spte->type = PAGE_ZERO;
           spte->frame = NULL;
+          spte->mapid = 0;
           spte->pagedir = cur->pagedir;
 
           spt_insert_page (&cur->process->spt, spte);
@@ -95,7 +96,7 @@ vm_load_page (void *upage, bool pin)
   if (spte->frame != NULL)
     return true;  // Page is already loaded.
   
-  enum palloc_flags flags = (spte->type == PAGE_ZERO) ? PAL_ZERO : 0;
+  enum palloc_flags flags = PAL_ZERO;
   struct frame *frame = frame_alloc (flags);
   if (frame == NULL)
     return false;  // No free frame available.

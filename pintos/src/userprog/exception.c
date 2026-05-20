@@ -191,6 +191,7 @@ page_fault (struct intr_frame *f)
                 new_spte->swap_slot = 0;
                 new_spte->type = PAGE_ZERO;
                 new_spte->frame = NULL;
+                new_spte->mapid = 0;
                 new_spte->pagedir = cur->pagedir;
                 spt_insert_page (&cur->process->spt, new_spte);
 
@@ -249,6 +250,7 @@ page_fault (struct intr_frame *f)
          spte->swap_slot = 0;
          spte->type = PAGE_ZERO;
          spte->frame = NULL;
+         spte->mapid = 0;
          spte->pagedir = cur->pagedir;
 
          spt_insert_page (&cur->process->spt, spte);

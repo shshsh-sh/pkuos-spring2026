@@ -122,13 +122,24 @@ mmap_unmap (mapid_t mapid)
           struct spt_entry *spte = hash_entry (e, struct spt_entry, hash_elem);
           if (spte->frame != NULL)
             {
-              if (pagedir_is_dirty (spte->pagedir, spte->upage))
+              if (pagedir_is_dirty (spte->pagedir, spte->upage) || spte->type == PAGE_SWAP)
                 file_write_at (spte->file, spte->frame->kpage, spte->read_bytes, spte->file_offset);
               pagedir_clear_page (spte->pagedir, spte->upage);
               frame_free (spte->frame);
+              if (spte->type == PAGE_SWAP && spte->swap_slot != 0)
+                swap_free (spte->swap_slot);
             }
           else if (spte->type == PAGE_SWAP)
-            swap_free (spte->swap_slot);
+            {
+              void *kpage = palloc_get_page (0);
+              if (kpage != NULL)
+                {
+                  swap_read (spte->swap_slot, kpage);
+                  file_write_at (spte->file, kpage, spte->read_bytes, spte->file_offset);
+                  palloc_free_page (kpage);
+                }
+              swap_free (spte->swap_slot);
+            }
           free (spte);
         }
     }

@@ -12,6 +12,7 @@
 #include "filesys/file.h"
 #include "vm/page.h"
 #include "vm/frame.h"
+#include "vm/mmap.h"
 
 #define STDIN_FILENO 0
 #define STDOUT_FILENO 1
@@ -29,7 +30,9 @@ static int syscall_argc[] = {
   [SYS_WRITE] = 3,
   [SYS_SEEK] = 2,
   [SYS_TELL] = 1,
-  [SYS_CLOSE] = 1
+  [SYS_CLOSE] = 1,
+  [SYS_MMAP] = 2,
+  [SYS_MUNMAP] = 1
 };
 
 static void syscall_handler (struct intr_frame *);
@@ -273,7 +276,7 @@ syscall_write (int fd, const void *buffer, unsigned size)
         syscall_exit (-1);
       
       struct spt_entry *spte = spt_lookup (&cur->process->spt, p);
-      if (spte == NULL || !spte->writable)
+      if (spte == NULL)
         syscall_exit (-1);
     }
   }
@@ -470,6 +473,19 @@ syscall_handler (struct intr_frame *f)
       {
         int fd = *(esp + 1);
         syscall_close (fd);
+        break;
+      }
+    case SYS_MMAP:
+      {
+        int fd = *(esp + 1);
+        void *addr = (void *) *(esp + 2);
+        f->eax = mmap_map (fd, addr);
+        break;
+      }
+    case SYS_MUNMAP:
+      {
+        mapid_t mapid = (mapid_t) *(esp + 1);
+        mmap_unmap (mapid);
         break;
       }
     default:

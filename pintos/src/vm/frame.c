@@ -1,6 +1,7 @@
 #include "vm/frame.h"
 #include <list.h>
 #include <stdlib.h>
+#include "filesys/file.h"
 #include "threads/malloc.h"
 #include "threads/palloc.h"
 #include "threads/synch.h"
@@ -110,17 +111,19 @@ do_eviction (void)
       if (dirty || spte->type == PAGE_SWAP)
         {
           lock_release (&frame_lock);
-
+          
           if (spte->type != PAGE_SWAP)
             {
               spte->swap_slot = swap_alloc ();
               spte->type = PAGE_SWAP;
+              swap_write (spte->swap_slot, kpage);
             }
-          else if (spte->swap_slot == 0)
+          else
             {
-              spte->swap_slot = swap_alloc ();
+              if (spte->swap_slot == 0)
+                spte->swap_slot = swap_alloc ();
+              swap_write (spte->swap_slot, kpage);
             }
-          swap_write (spte->swap_slot, kpage);
 
           lock_acquire (&frame_lock);
         }
