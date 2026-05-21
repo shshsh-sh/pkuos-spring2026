@@ -12,14 +12,14 @@
 #include "vm/swap.h"
 
 unsigned
-spt_hash_func(const struct hash_elem *e, void *aux UNUSED)
+spt_hash_func (const struct hash_elem *e, void *aux UNUSED)
 {
   const struct spt_entry *page = hash_entry (e, struct spt_entry, hash_elem);
   return hash_bytes (&page->upage, sizeof page->upage);
 }
 
 bool
-spt_less_func(const struct hash_elem *a, const struct hash_elem *b, void *aux UNUSED)
+spt_less_func (const struct hash_elem *a, const struct hash_elem *b, void *aux UNUSED)
 {
   const struct spt_entry *page_a = hash_entry (a, struct spt_entry, hash_elem);
   const struct spt_entry *page_b = hash_entry (b, struct spt_entry, hash_elem);
@@ -27,7 +27,7 @@ spt_less_func(const struct hash_elem *a, const struct hash_elem *b, void *aux UN
 }
 
 struct spt_entry*
-spt_lookup(struct hash *spt, const void *upage)
+spt_lookup (struct hash *spt, const void *upage)
 {
   struct spt_entry temp;
   temp.upage = pg_round_down (upage);
@@ -36,14 +36,14 @@ spt_lookup(struct hash *spt, const void *upage)
 }
 
 bool
-spt_insert_page(struct hash *spt, struct spt_entry *page)
+spt_insert_page (struct hash *spt, struct spt_entry *page)
 {
   struct hash_elem *e = hash_insert (spt, &page->hash_elem);
   return e == NULL; 
 }
 
 void
-spt_destroy_func(struct hash_elem *e, void *aux UNUSED)
+spt_destroy_func (struct hash_elem *e, void *aux UNUSED)
 {
   struct spt_entry *page = hash_entry (e, struct spt_entry, hash_elem);
   if (page->frame != NULL)
